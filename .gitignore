@@ -1,20 +1,20 @@
-# Virtual environments
-venv/
-.env/
-
-# Data folders (do not push large files)
-data/raw/
-data/processed/
-
-# Model artifacts
-*.pkl
-*.joblib
-
-# Python cache
+# Python
 __pycache__/
+*.pyc
 
-# Jupyter
+# Jupyter notebooks checkpoints
 .ipynb_checkpoints/
 
-# Editor
-.vscode/
+# Data
+*.csv
+*.txt
+
+# Large media files
+*.mp4
+*.mov
+*.avi
+
+# Environment files
+.env
+venv/
+
