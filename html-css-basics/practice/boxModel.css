@@ -1,0 +1,21 @@
+.box{
+   width: 200px;
+   height: 200px;
+   border: 2px solid black;
+   padding-top: 120px;
+   padding-left: 30px;
+   box-sizing: border-box;
+}
+
+.box p{
+   margin: 0;
+   border: 2px solid red;
+   padding: 10px;
+   box-sizing: border-box;
+}
+
+.spanTag{
+    border: 2px solid blue;
+    padding: 5px;
+    box-sizing: border-box;
+}
