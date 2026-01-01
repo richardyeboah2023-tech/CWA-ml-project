@@ -1,129 +1,147 @@
 import tkinter as tk
-import ctypes
-import os
-from pathlib import Path
+from tkinter import messagebox
+from cwa_engine_bridge import (
+    calculate_fair_cwa,
+    recalculate_with_priority,
+    destroy_student,
+)
 
-# ===============================
-# LOCATE DLL
-# ===============================
+student_ptr = None
 
-BASE_DIR = Path(__file__).resolve().parent
-C_LIB_DIR = BASE_DIR / "CWA-ENGINE"
-C_LIB_PATH = C_LIB_DIR / "cwa_engine.dll"
 
-# Tell Windows where to find DLL dependencies
-os.add_dll_directory(str(C_LIB_DIR))
+def calculate():
+    global student_ptr
 
-# Load C library
-c_lib = ctypes.WinDLL(str(C_LIB_PATH))
-
-# ===============================
-# DEFINE C TYPES
-# ===============================
-
-Student = ctypes.c_void_p
-
-c_lib.init_student.argtypes = [
-    ctypes.c_char_p,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_float,
-    ctypes.c_float
-]
-c_lib.init_student.restype = Student
-
-c_lib.calculate_fair_distribution.argtypes = [Student]
-c_lib.calculate_fair_distribution.restype = ctypes.c_float
-
-c_lib.destroy_object.argtypes = [Student]
-c_lib.destroy_object.restype = None
-
-# ===============================
-# PYTHON → C ENGINE BRIDGE
-# ===============================
-
-def compute_required_average(
-    completed_credits,
-    remaining_credits,
-    current_cwa,
-    target_cwa
-):
-    student = c_lib.init_student(
-        b"PythonUser",
-        completed_credits,
-        remaining_credits,
-        current_cwa,
-        target_cwa
-    )
-
-    if not student:
-        return None
-
-    result = c_lib.calculate_fair_distribution(student)
-    c_lib.destroy_object(student)
-
-    return result
-
-# ===============================
-# GUI CALLBACK
-# ===============================
-
-def send_to_engine():
     try:
+        name = name_entry.get().strip()
         completed = int(completed_entry.get())
         remaining = int(remaining_entry.get())
-        current = float(current_cwa_entry.get())
-        target = float(target_cwa_entry.get())
-    except ValueError:
-        result_label.config(text="❌ Invalid input")
-        return
+        current_cwa = float(current_cwa_entry.get())
+        target_cwa = float(target_cwa_entry.get())
 
-    result = compute_required_average(
-        completed, remaining, current, target
-    )
+        # ---- GUI VALIDATION ----
+        if not name:
+            raise ValueError("Name cannot be empty")
 
-    if result is None:
-        result_label.config(text="❌ Engine error")
-    elif result == 0:
-        result_label.config(text="⚠ Target impossible (>100 needed)")
-    elif result == -1:
-        result_label.config(text="⚠ Target impossible (<0)")
-    else:
-        result_label.config(
-            text=f"✅ Required Avg per Course: {result:.2f}"
+        if completed <= 0 or remaining <= 0:
+            raise ValueError("Credits must be positive numbers")
+
+        if not (0 < current_cwa <= 100):
+            raise ValueError("Current CWA must be between 0 and 100")
+
+        if not (0 < target_cwa <= 100):
+            raise ValueError("Target CWA must be between 0 and 100")
+
+        student_ptr, result = calculate_fair_cwa(
+            name,
+            completed,
+            remaining,
+            current_cwa,
+            target_cwa,
         )
 
-# ===============================
-# GUI LAYOUT
-# ===============================
+        if result < 0:
+            messagebox.showerror(
+                "Impossible",
+                "Target CWA is not achievable with remaining credits",
+            )
+        else:
+            result_label.config(
+                text=f"Required average score: {result:.2f}"
+            )
 
+    except ValueError as e:
+        messagebox.showerror("Input Error", str(e))
+    except Exception as e:
+        messagebox.showerror("System Error", str(e))
+
+
+def recalculate():
+    global student_ptr
+
+    try:
+        if not student_ptr:
+            raise ValueError("Calculate fair distribution first")
+
+        priority_score = float(priority_score_entry.get())
+        priority_credit = int(priority_credit_entry.get())
+
+        if priority_credit <= 0:
+            raise ValueError("Priority credits must be positive")
+
+        if not (0 < priority_score <= 100):
+            raise ValueError("Priority score must be between 0 and 100")
+
+        total_priority_wa = priority_score * priority_credit
+
+        result = recalculate_with_priority(
+            student_ptr,
+            total_priority_wa,
+            priority_credit,
+        )
+
+        if result < 0:
+            messagebox.showerror(
+                "Impossible",
+                "Recalculated distribution is not realistic",
+            )
+        else:
+            result_label.config(
+                text=f"New required average: {result:.2f}"
+            )
+
+    except ValueError as e:
+        messagebox.showerror("Input Error", str(e))
+    except Exception as e:
+        messagebox.showerror("System Error", str(e))
+
+
+# -------------------------------
+# GUI Layout
+# -------------------------------
 root = tk.Tk()
-root.title("CWA Predictor (Python + C Engine)")
-root.geometry("420x350")
+root.title("CWA Estimator")
 
-tk.Label(root, text="Completed Credits").pack()
+tk.Label(root, text="Name").grid(row=0, column=0)
+name_entry = tk.Entry(root)
+name_entry.grid(row=0, column=1)
+
+tk.Label(root, text="Completed Credits").grid(row=1, column=0)
 completed_entry = tk.Entry(root)
-completed_entry.pack()
+completed_entry.grid(row=1, column=1)
 
-tk.Label(root, text="Remaining Credits").pack()
+tk.Label(root, text="Remaining Credits").grid(row=2, column=0)
 remaining_entry = tk.Entry(root)
-remaining_entry.pack()
+remaining_entry.grid(row=2, column=1)
 
-tk.Label(root, text="Current CWA").pack()
+tk.Label(root, text="Current CWA").grid(row=3, column=0)
 current_cwa_entry = tk.Entry(root)
-current_cwa_entry.pack()
+current_cwa_entry.grid(row=3, column=1)
 
-tk.Label(root, text="Target CWA").pack()
+tk.Label(root, text="Target CWA").grid(row=4, column=0)
 target_cwa_entry = tk.Entry(root)
-target_cwa_entry.pack()
+target_cwa_entry.grid(row=4, column=1)
 
-tk.Button(
-    root,
-    text="Compute Required Average",
-    command=send_to_engine
-).pack(pady=15)
+tk.Button(root, text="Calculate", command=calculate).grid(
+    row=5, column=0, columnspan=2
+)
 
-result_label = tk.Label(root, text="", font=("Arial", 12))
-result_label.pack()
+tk.Label(root, text="Priority Score").grid(row=6, column=0)
+priority_score_entry = tk.Entry(root)
+priority_score_entry.grid(row=6, column=1)
+
+tk.Label(root, text="Priority Credit").grid(row=7, column=0)
+priority_credit_entry = tk.Entry(root)
+priority_credit_entry.grid(row=7, column=1)
+
+tk.Button(root, text="Recalculate", command=recalculate).grid(
+    row=8, column=0, columnspan=2
+)
+
+result_label = tk.Label(root, text="")
+result_label.grid(row=9, column=0, columnspan=2)
 
 root.mainloop()
+
+if student_ptr:
+    destroy_student(student_ptr)
