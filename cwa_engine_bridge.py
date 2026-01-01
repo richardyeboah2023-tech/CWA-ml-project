@@ -1,11 +1,13 @@
 import ctypes
-import os
+from pathlib import Path
 
-# Full path to your compiled C library
-C_LIB_PATH = os.path.join(os.getcwd(), "CWA-ENGINE", "cwa_engine.dll")
-c_lib = ctypes.CDLL(C_LIB_PATH)
+# Path to your compiled DLL
+C_LIB_PATH = Path("CWA-ENGINE/cwa_engine.dll").resolve()
 
-# Expose functions from the DLL
+# Load the C library
+c_lib = ctypes.CDLL(str(C_LIB_PATH))
+
+# Define argument and return types
 c_lib.init_student.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_int, ctypes.c_double, ctypes.c_double]
 c_lib.init_student.restype = ctypes.c_void_p
 
@@ -18,17 +20,10 @@ c_lib.recalculate_fair_distribution.restype = ctypes.c_double
 c_lib.destroy_object.argtypes = [ctypes.c_void_p]
 c_lib.destroy_object.restype = None
 
-# Python wrapper
-def compute_cwa(name, completed_credits, remaining_credits, current_cwa, target_cwa):
-    if completed_credits < 0 or remaining_credits < 0 or current_cwa < 0 or target_cwa < 0:
-        return "Error: Negative values are not allowed"
-    
-    student = c_lib.init_student(name.encode('utf-8'), completed_credits, remaining_credits, current_cwa, target_cwa)
-    
-    result = c_lib.calculate_fair_distribution(student)
-    if result < 0:
-        c_lib.destroy_object(student)
-        return "Error: Impossible target or invalid calculation"
-    
+def calculate_cwa(name, completed_credits, remaining_credits, current_cwa, target_cwa):
+    student = c_lib.init_student(
+        name.encode('utf-8'), completed_credits, remaining_credits, current_cwa, target_cwa
+    )
+    fair_dist = c_lib.calculate_fair_distribution(student)
     c_lib.destroy_object(student)
-    return result
+    return fair_dist
