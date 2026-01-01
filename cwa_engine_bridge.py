@@ -1,39 +1,36 @@
 import ctypes
 from pathlib import Path
 
-# Absolute path to DLL
-C_LIB_PATH = Path(__file__).parent / "CWA-ENGINE" / "cwa_engine.dll"
-
 # Load DLL
+C_LIB_PATH = Path("CWA-ENGINE/cwa_engine.dll").resolve()
 c_lib = ctypes.CDLL(str(C_LIB_PATH))
 
-# C function signatures (MATCH THE C HEADER ORDER)
+# ---- CORRECT TYPES (float ≠ double) ----
 c_lib.init_student.argtypes = [
-    ctypes.c_char_p,   # name
-    ctypes.c_double,   # current_cwa
-    ctypes.c_int,      # completed_credits
-    ctypes.c_int,      # remaining_credits
-    ctypes.c_double    # target_cwa
+    ctypes.c_char_p,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_float,   # current_cwa
+    ctypes.c_float    # target_cwa
 ]
 c_lib.init_student.restype = ctypes.c_void_p
 
 c_lib.calculate_fair_distribution.argtypes = [ctypes.c_void_p]
-c_lib.calculate_fair_distribution.restype = ctypes.c_double
+c_lib.calculate_fair_distribution.restype = ctypes.c_float
 
 c_lib.destroy_object.argtypes = [ctypes.c_void_p]
 c_lib.destroy_object.restype = None
 
 
-def calculate_cwa(name, current_cwa, completed_credits, remaining_credits, target_cwa):
+def calculate_cwa(name, completed, remaining, current, target):
     student = c_lib.init_student(
         name.encode("utf-8"),
-        current_cwa,
-        completed_credits,
-        remaining_credits,
-        target_cwa
+        completed,
+        remaining,
+        ctypes.c_float(current),
+        ctypes.c_float(target)
     )
 
     result = c_lib.calculate_fair_distribution(student)
     c_lib.destroy_object(student)
-
     return result

@@ -26,12 +26,13 @@ def send_to_c():
             return
 
         fair_dist = calculate_cwa(
-            name,
-            current_cwa,
-            completed_credits,
-            remaining_credits,
-            target_cwa
-        )
+          name,
+          completed_credits,
+          remaining_credits,
+          float(current_cwa),
+          float(target_cwa)
+)
+
 
         if fair_dist < 0 or fair_dist > 100:
             result_label.config(
