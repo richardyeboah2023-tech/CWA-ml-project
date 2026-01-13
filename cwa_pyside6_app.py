@@ -37,16 +37,18 @@ except Exception:
     CHARTS_OK = False
 
 
-# ---- Your engine bridge (exact) ----
+# ---- Engine bridge ----
 # cwa_engine_bridge.py must be in the same folder as this file.
 try:
-    from cwa_engine_bridge import calculate_cwa as engine_calculate_cwa
+    # keep access to the low-level calculate_cwa, but use compute_summary for the GUI
+    from cwa_engine_bridge import calculate_cwa as engine_calculate_cwa, compute_summary
     ENGINE_OK = True
     ENGINE_ERR = ""
 except Exception as e:
     ENGINE_OK = False
     ENGINE_ERR = str(e)
     engine_calculate_cwa = None  # type: ignore
+    compute_summary = None       # type: ignore
 
 
 APP_QSS = """
@@ -463,7 +465,7 @@ class CWAEstimatorPage(QWidget):
             cur = self._safe_float(cur_txt) if cur_txt else 0.0
             alloc = self._safe_float(alloc_txt) if alloc_txt else 0.0
 
-            # ✅ FIX: tick when Current Score >= Allocated Score, and credits > 0
+            # Target tick: credits > 0 and Current Score >= Allocated Score.
             reached = (cr > 0) and (alloc_txt != "") and (cur >= alloc)
             self._set_target_box(t, r, checked=reached, bg=bg)
 
@@ -495,6 +497,38 @@ class CWAEstimatorPage(QWidget):
             return 0.0
         return (target_cwa * (completed + remaining) - current_cwa * completed) / remaining
 
+    # ---- new: build payload for engine bridge ----
+    def _build_payload(self) -> Optional[dict]:
+        target = self._target_cwa_value()
+        if target is None:
+            return None
+
+        courses = []
+        for t in self.tables:
+            for r in range(t.rowCount()):
+                name = self._text(t.item(r, 0))
+                cr_txt = self._text(t.item(r, 1))
+                cur_txt = self._text(t.item(r, 2))
+                alloc_txt = self._text(t.item(r, 4))
+
+                # skip fully empty rows
+                if name == "" and cr_txt == "" and cur_txt == "" and alloc_txt == "":
+                    continue
+
+                courses.append(
+                    {
+                        "course": name,
+                        "credits": self._safe_int(cr_txt),
+                        "current": self._safe_float(cur_txt),
+                        "allocated": self._safe_float(alloc_txt),
+                    }
+                )
+
+        if not courses:
+            return None
+
+        return {"courses": courses, "target_cwa": float(target)}
+
     def recompute(self) -> None:
         if self._building:
             return
@@ -502,6 +536,7 @@ class CWAEstimatorPage(QWidget):
         for t in self.tables:
             self._restyle_table(t)
 
+        # Local selected/total/remaining (still computed, but will be overridden by engine summary)
         selected = self._credits_from_tables()
         total = selected
         remaining = total - selected
@@ -523,34 +558,51 @@ class CWAEstimatorPage(QWidget):
             else:
                 self.sum_engine_status.setText(f"Engine: not connected ({ENGINE_ERR})")
 
-        if target_cwa is None or total <= 0:
+        # ---------- use engine bridge if available ----------
+        payload = None
+        if target_cwa is not None and compute_summary is not None and ENGINE_OK:
+            payload = self._build_payload()
+
+        if not payload:
             self._set_chart_reset()
             return
 
-        if remaining <= 0:
-            self._set_chart_reset()
+        try:
+            summary = compute_summary(payload)
+        except Exception as e:
+            # fall back to simple Python estimation if engine or bridge fails
+            current_cwa = self._get_current_cwa()
+            required = self._fallback_required_avg(
+                completed=selected,
+                remaining=remaining,
+                current_cwa=current_cwa,
+                target_cwa=float(target_cwa or 0.0),
+            )
+            if self.sum_required_avg:
+                self.sum_required_avg.setText(f"{required:.1f}")
+            if self.sum_engine_status:
+                self.sum_engine_status.setText(f"Engine error: {e}")
+            if CHARTS_OK and self.series_current and self.series_adjusted:
+                self.series_current.clear()
+                self.series_adjusted.clear()
+                self.series_current.append(0, current_cwa)
+                self.series_current.append(1, current_cwa)
+                self.series_current.append(2, current_cwa)
+                self.series_adjusted.append(0, current_cwa)
+                self.series_adjusted.append(1, max(0.0, min(100.0, required)))
+                self.series_adjusted.append(2, float(target_cwa or 0.0))
             return
 
-        current_cwa = self._get_current_cwa()
-        name = "Student"
-        completed = selected
-        required = None
+        # Use engine summary
+        current_cwa = float(summary.get("current_cwa", 0.0))
+        required = float(summary.get("required_avg", 0.0))
 
-        if ENGINE_OK and engine_calculate_cwa is not None:
-            try:
-                required = float(
-                    engine_calculate_cwa(
-                        name, int(completed), int(remaining), float(current_cwa), float(target_cwa)
-                    )
-                )
-                if not math.isfinite(required):
-                    raise RuntimeError(f"Engine returned non-finite: {required}")
-            except Exception:
-                required = None
-
-        if required is None:
-            required = self._fallback_required_avg(completed, remaining, current_cwa, float(target_cwa))
-
+        if self.sum_total_credits:
+            self.sum_total_credits.setText(str(int(summary.get("total_credits", total))))
+        if self.sum_selected_credits:
+            self.sum_selected_credits.setText(str(int(summary.get("selected_credits", selected))))
+        if self.sum_remaining_credits:
+            self.sum_remaining_credits.setText(str(int(summary.get("remaining_credits", remaining))))
         if self.sum_required_avg:
             self.sum_required_avg.setText(f"{required:.1f}")
 
@@ -562,7 +614,7 @@ class CWAEstimatorPage(QWidget):
             self.series_current.append(2, current_cwa)
             self.series_adjusted.append(0, current_cwa)
             self.series_adjusted.append(1, max(0.0, min(100.0, required)))
-            self.series_adjusted.append(2, float(target_cwa))
+            self.series_adjusted.append(2, float(target_cwa or 0.0))
 
     # ---- build UI ----
     def _build_ui(self):
